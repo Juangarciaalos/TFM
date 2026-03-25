@@ -26,6 +26,9 @@ def load_glue_sst2(batch_size=16, max_length=128):
     train_dataset = dataset['train'].map(encode, batched=True)
     val_dataset = dataset['validation'].map(encode, batched=True)
 
+    train_dataset.set_format(type='torch', columns=['input_ids', 'label'])
+    val_dataset.set_format(type='torch', columns=['input_ids', 'label'])
+
     #Crear DataLoaders
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)

@@ -19,6 +19,11 @@ def generate_individual_plots(args):
         print(f"Error: No se encontró el archivo CSV en {input_csv}")
         return
 
+    df['allocated_mb'] = pd.to_numeric(df['allocated_mb'], errors='coerce')
+    df['reserved_mb'] = pd.to_numeric(df['reserved_mb'], errors='coerce')
+    df['batch_time_ms'] = pd.to_numeric(df['batch_time_ms'], errors='coerce')
+    df = df.dropna()
+
     df['global_step'] = range(len(df))
     
     if len(df) > 10:

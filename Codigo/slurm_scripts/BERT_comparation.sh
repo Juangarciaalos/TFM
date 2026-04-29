@@ -22,25 +22,31 @@ singularity exec --nv -B "$WORK":/workspace "$IMG" bash -lc "
     cd /workspace/modelos/BERT/
     mkdir salidas/BERT_\$SLURM_JOB_ID
 
-   echo '--- BERT-BASE (Secuencia 128) ---'
+    echo 'BERT-BASE (Secuencia 128)'
     python train.py --job_id \$SLURM_JOB_ID --name base --model bert_base --max_length 128 --batch_size 32
     python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model bert_base --max_length 128
 
     sleep 10
 
-    echo '--- BERT-LARGE (Secuencia 128) ---'
+    echo 'BERT-LARGE (Secuencia 128)'
     python train.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 128 --batch_size 32
     python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 128
 
     sleep 10
 
-    echo '--- BERT-LARGE (Secuencia 512) ---'
+    echo 'BERT-LARGE OPTIMIZADO(Secuencia 128)'
+    python train.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 128 --batch_size 32 --amp --checkpointing
+    python plot_performance.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 128
+
+    sleep 10
+
+    echo 'BERT-LARGE (Secuencia 512)'
     python train.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 512 --batch_size 32
     python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 512
     
     sleep 10
 
-    echo '--- BERT-LARGE OPTIMIZADO (Secuencia 512) ---'
+    echo 'BERT-LARGE OPTIMIZADO (Secuencia 512)'
     python train.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 512 --batch_size 32 --amp --checkpointing
     python plot_performance.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 512
 "

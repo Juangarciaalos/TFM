@@ -84,17 +84,29 @@ def train(args):
             logger.log(epoch, batch_idx, "batch_start")
 
             optimizer.zero_grad()
-            with torch.cuda.amp.autocast(enabled=args.amp):
-                outputs = model(input_ids)
-                loss = criterion(outputs, labels)
-            
-            logger.log(epoch, batch_idx, "after_forward")
 
-            scaler.scale(loss).backward()
-            logger.log(epoch, batch_idx, "after_backward")
-            
-            scaler.step(optimizer)
-            scaler.update()
+            try:
+                with torch.cuda.amp.autocast(enabled=args.amp):
+                    outputs = model(input_ids)
+                    loss = criterion(outputs, labels)
+                
+                logger.log(epoch, batch_idx, "after_forward")
+
+                scaler.scale(loss).backward()
+                logger.log(epoch, batch_idx, "after_backward")
+                
+                scaler.step(optimizer)
+                scaler.update()
+                
+            except RuntimeError as e:
+                if "out of memory" in str(e).lower():
+                    print(f"|OOM DETECTADO en Batch {batch_idx}|")
+                    logger.log(epoch, batch_idx, "OOM_CRASH")
+                    
+                    torch.cuda.empty_cache() 
+                    break 
+                else:    
+                    raise e 
             
             end_event.record()
             torch.cuda.synchronize()

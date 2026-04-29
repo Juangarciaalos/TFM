@@ -19,8 +19,10 @@ WORK="$BASE/tfm"
 
 singularity exec --nv -B "$WORK":/workspace "$IMG" bash -lc "
     source /workspace/.venv/bin/activate
+    
     cd /workspace/modelos/ResNet/
-    mkdir salidas/resnet_\$SLURM_JOB_ID
+
+    mkdir -psalidas/resnet_\$SLURM_JOB_ID
 
     echo 'RESNET-50 BASELINE'
     python train.py --job_id \$SLURM_JOB_ID --name base --model resnet50 --epochs 1 --batch_size 64

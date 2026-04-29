@@ -63,10 +63,10 @@ def generate_plot(args):
     zoom_points = 40 if len(df) > 40 else len(df)
     save_plot(df.head(zoom_points), "zoom", is_zoom=True)
     
-    print(f"Gráficas (Full y Zoom) guardadas para {args.model}_{args.name}")
+    print(f"Gráficas guardadas.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description="Generador de gráficas para ResNet")
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--name", type=str, required=True)
     parser.add_argument("--job_id", type=str, required=True)

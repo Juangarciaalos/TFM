@@ -8,23 +8,35 @@ def generate_plot(args):
 
     os.makedirs(f"salidas/resnet_{args.job_id}/graficas", exist_ok=True)
 
-    input_csv = f"salidas/resnet_{args.job_id}/csv/{args.model}_{args.name}_{args.job_id}.csv"
-    output_base = f"salidas/resnet_{args.job_id}/graficas/{args.model}_{args.name}_{args.job_id}"
+    input_csv = f"salidas/resnet_{args.job_id}/csv/{args.model}_{args.name}_S{args.image_size}_{args.job_id}.csv"
+    output_base = f"salidas/resnet_{args.job_id}/graficas/{args.model}_{args.name}_S{args.image_size}_{args.job_id}"
     
-
     try:
         df = pd.read_csv(input_csv)
     except FileNotFoundError:
         print(f"Error: No se encontró el archivo CSV en {input_csv}")
         return
 
+    df['allocated_mb'] = pd.to_numeric(df['allocated_mb'], errors='coerce')
+    df['reserved_mb'] = pd.to_numeric(df['reserved_mb'], errors='coerce')
+    df['max_peak_mb'] = pd.to_numeric(df['max_peak_mb'], errors='coerce')
+    df['batch_time_ms'] = pd.to_numeric(df['batch_time_ms'], errors='coerce')
+    df = df.dropna()
+
     df['global_step'] = range(len(df))
     
-    avg_time = df['batch_time_ms'][10:].mean() if len(df) > 10 else df['batch_time_ms'].mean()
-    peak_mem = df['allocated_mb'].max()
+    hubo_oom = 'OOM_CRASH' in df['event'].values
     
+    if len(df) > 10:
+        avg_time = df['batch_time_ms'][10:].mean()
+        peak_mem = df['max_peak_mb'].max() if hubo_oom else df['allocated_mb'].max()
+    else:
+        avg_time = df['batch_time_ms'].mean()
+        peak_mem = df['max_peak_mb'].max() if hubo_oom else df['allocated_mb'].max()
+        
     title_model = "ResNet-50" if args.model == "resnet50" else "ResNet-101"
     title_config = "Baseline (FP32)" if args.name == "base" else "Optimizado (AMP+CKPT)"
+    estado = " (OOM)" if hubo_oom else ""
 
     sns.set_theme(style="whitegrid")
 
@@ -48,11 +60,24 @@ def generate_plot(args):
                     plt.annotate(label, (row['global_step'], row['allocated_mb']),
                                  textcoords="offset points", xytext=(0,10), ha='center', 
                                  fontsize=8, fontweight='bold')
+                                 
+        for _, row in dataframe.iterrows():
+            if row['event'] == 'OOM_CRASH':
+                crash_mem = row['max_peak_mb']
+                plt.plot(row['global_step'], crash_mem, marker='o', color='red', markersize=8, zorder=5)
+                plt.annotate('OOM', (row['global_step'], crash_mem),
+                             textcoords="offset points", xytext=(0,8), ha='center', 
+                             fontsize=9, color='red', fontweight='bold')
 
-        plt.title(f"{title_model} {title_config} - {suffix}\nPeak: {peak_mem:.0f}MB | Avg Time: {avg_time:.1f}ms", fontsize=14)
+        plt.title(f"{title_model} {title_config} - Res: {args.image_size}x{args.image_size}{estado}\nPeak: {peak_mem:.0f}MB | Avg Time: {avg_time:.1f}ms", fontsize=14)
         plt.ylabel("Memoria GPU (MB)")
         plt.xlabel("Pasos (Eventos)")
-        plt.legend(loc='upper right')
+        
+        plt.legend(loc='upper left')
+        
+        if hubo_oom:
+            plt.ylim(0, peak_mem * 1.10)
+            
         plt.tight_layout()
         plt.savefig(f"{output_base}_{suffix}.png", dpi=300)
         plt.close()
@@ -70,5 +95,6 @@ if __name__ == "__main__":
     parser.add_argument("--model", type=str, required=True)
     parser.add_argument("--name", type=str, required=True)
     parser.add_argument("--job_id", type=str, required=True)
+    parser.add_argument("--image_size", type=int, required=True)
     args = parser.parse_args()
     generate_plot(args)

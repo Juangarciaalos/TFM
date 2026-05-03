@@ -23,25 +23,31 @@ singularity exec --nv -B "$WORK":/workspace "$IMG" bash -lc "
     
     mkdir -p salidas/GPT2_\$SLURM_JOB_ID
 
-    echo 'GPT2-BASE (Secuencia 256)'
-    python train.py --job_id \$SLURM_JOB_ID --name base --model gpt2_base --max_length 256 --batch_size 8
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model gpt2_base --max_length 256
+    echo 'GPT2-BASE (Secuencia 512)'
+    python train.py --job_id \$SLURM_JOB_ID --name base --model gpt2_base --max_length 512 --batch_size 8
+    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model gpt2_base --max_length 512
 
-    sleep 10 # Pausa térmica para la GPU
-
-    echo 'GPT2-MEDIUM (Secuencia 256)'
-    python train.py --job_id \$SLURM_JOB_ID --name base --model gpt2_medium --max_length 256 --batch_size 8
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model gpt2_medium --max_length 256
-
-    sleep 10
+    sleep 10 
 
     echo 'GPT2-MEDIUM (Secuencia 512)'
     python train.py --job_id \$SLURM_JOB_ID --name base --model gpt2_medium --max_length 512 --batch_size 8
     python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model gpt2_medium --max_length 512
-    
+
     sleep 10
 
     echo 'GPT2-MEDIUM OPTIMIZADO (Secuencia 512)'
     python train.py --job_id \$SLURM_JOB_ID --name opt --model gpt2_medium --max_length 512 --batch_size 8 --amp --checkpointing
     python plot_performance.py --job_id \$SLURM_JOB_ID --name opt --model gpt2_medium --max_length 512
+
+    sleep 10
+
+    echo 'GPT2-LARGE (Secuencia 512)'
+    python train.py --job_id \$SLURM_JOB_ID --name base --model gpt2_large --max_length 512 --batch_size 8
+    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model gpt2_large --max_length 512
+    
+    sleep 10
+
+    echo 'GPT2-LARGE OPTIMIZADO (Secuencia 512)'
+    python train.py --job_id \$SLURM_JOB_ID --name opt --model gpt2_large --max_length 512 --batch_size 8 --amp --checkpointing
+    python plot_performance.py --job_id \$SLURM_JOB_ID --name opt --model gpt2_large --max_length 512
 "

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
+import bitsandbytes as bnb
 import argparse
 import sys
 import os
@@ -54,8 +55,14 @@ def train(args):
         model.use_checkpoint = True
         print("Gradient Checkpointing activado")
 
-    
-    optimizer = optim.AdamW(model.parameters(), lr=2e-5)
+    if args.optim_8bit:
+        print("Optimizador AdamW de 8-bits (bitsandbytes)")
+        optimizer = bnb.optim.AdamW8bit(model.parameters(), lr=2e-5)
+    else:
+        print("Optimizador AdamW estándar (PyTorch FP32)")
+        optimizer = optim.AdamW(model.parameters(), lr=2e-5)
+
+
     criterion = nn.CrossEntropyLoss()
     scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
 
@@ -124,12 +131,13 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="bert_base", choices=["bert_base", "bert_large"])
-    parser.add_argument("--name", type=str, default="base", choices=["base", "opt"])
+    parser.add_argument("--name", type=str, default="base", choices=["base", "opt", "opt_8bit", "base_32bit"])
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--checkpointing", action="store_true")
     parser.add_argument("--max_length", type=int, default=128)
+    parser.add_argument("--optim_8bit", action="store_true")
     args = parser.parse_args()
     train(args)

@@ -100,7 +100,7 @@ def generate_individual_plots(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generador de gráficas para BERT")
     parser.add_argument("--model", type=str, required=True, choices=["bert_base", "bert_large"])
-    parser.add_argument("--name", type=str, required=True, choices=["base", "opt"])
+    parser.add_argument("--name", type=str, required=True, choices=["base", "opt", "opt_8bit", "base_32bit"])
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--max_length", type=int, required=True)
     args = parser.parse_args()

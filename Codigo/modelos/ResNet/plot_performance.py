@@ -4,12 +4,38 @@ import seaborn as sns
 import argparse
 import os
 
+def get_output_root():
+    return os.environ.get("TFM_OUTPUT_DIR", "salidas")
+
+def build_paths(output_root, model_folder, filename_without_ext):
+    model_output_dir = os.path.join(output_root, model_folder)
+    csv_dir = os.path.join(model_output_dir, "csv")
+    plots_dir = os.path.join(model_output_dir, "graficas")
+
+    os.makedirs(plots_dir, exist_ok=True)
+
+    input_csv = os.path.join(csv_dir, f"{filename_without_ext}.csv")
+    output_base = os.path.join(plots_dir, filename_without_ext)
+
+    return input_csv, output_base
+
 def generate_plot(args):
 
-    os.makedirs(f"salidas/resnet_{args.job_id}/graficas", exist_ok=True)
+    output_root = get_output_root()
+    model_output_dir = os.path.join(output_root, "ResNet")
 
-    input_csv = f"salidas/resnet_{args.job_id}/csv/{args.model}_{args.name}_S{args.image_size}_{args.job_id}.csv"
-    output_base = f"salidas/resnet_{args.job_id}/graficas/{args.model}_{args.name}_S{args.image_size}_{args.job_id}"
+    csv_dir = os.path.join(model_output_dir, "csv")
+    plots_dir = os.path.join(model_output_dir, "graficas")
+
+    os.makedirs(plots_dir, exist_ok=True)
+
+    filename_base = f"{args.model}_{args.name}_S{args.image_size}_{args.job_id}"
+
+    input_csv, output_base = build_paths(
+        get_output_root(),
+        "ResNet",
+        filename_base
+    )
     
     try:
         df = pd.read_csv(input_csv)
@@ -46,6 +72,14 @@ def generate_plot(args):
         title_config = "Allocator test (max_split_size_mb=128)"
     elif args.name == "alloc_test_opt":
         title_config = "Allocator test + AMP+CKPT"
+    elif args.name == "opt_snapshot":
+        title_config = "Optimizado (AMP+CKPT) Snapshot"
+    elif args.name == "alloc_snapshot":
+        title_config = "Allocator Snapshot (max_split_size_mb=128)"
+    elif args.name == "cuda_async":
+        title_config = "Allocator backend cudaMallocAsync"
+    elif args.name == "cuda_async_opt":
+        title_config = "cudaMallocAsync + AMP+CKPT"
     else:
         title_config = args.name
 

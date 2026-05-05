@@ -5,11 +5,37 @@ import argparse
 import sys
 import os
 
-def generate_individual_plots(args):
-    os.makedirs(f"salidas/GPT2_{args.job_id}/graficas", exist_ok=True)
+def get_output_root():
+    return os.environ.get("TFM_OUTPUT_DIR", "salidas")
 
-    input_csv = f"salidas/GPT2_{args.job_id}/csv/{args.model}_{args.name}_L{args.max_length}_{args.job_id}.csv"
-    output_base = f"salidas/GPT2_{args.job_id}/graficas/{args.model}_{args.name}_L{args.max_length}_{args.job_id}"
+def build_paths(output_root, model_folder, filename_without_ext):
+    model_output_dir = os.path.join(output_root, model_folder)
+    csv_dir = os.path.join(model_output_dir, "csv")
+    plots_dir = os.path.join(model_output_dir, "graficas")
+
+    os.makedirs(plots_dir, exist_ok=True)
+
+    input_csv = os.path.join(csv_dir, f"{filename_without_ext}.csv")
+    output_base = os.path.join(plots_dir, filename_without_ext)
+
+    return input_csv, output_base
+
+def generate_individual_plots(args):
+    output_root = get_output_root()
+    model_output_dir = os.path.join(output_root, "GPT2")
+
+    csv_dir = os.path.join(model_output_dir, "csv")
+    plots_dir = os.path.join(model_output_dir, "graficas")
+
+    os.makedirs(plots_dir, exist_ok=True)
+
+    filename_base = f"{args.model}_{args.name}_L{args.max_length}_{args.job_id}"
+
+    input_csv, output_base = build_paths(
+        get_output_root(),
+        "GPT2",
+        filename_base
+    )
     
     try:
         df = pd.read_csv(input_csv)
@@ -37,7 +63,14 @@ def generate_individual_plots(args):
     peak_mem = peak_alloc
         
     title_model = "GPT-2 Base" if args.model == "gpt2_base" else "GPT-2 Medium" if args.model == "gpt2_medium" else "GPT-2 Large"
-    title_config = "Baseline (FP32)" if args.name == "base" else "Optimizado (AMP+CKPT)"
+    if args.name == "base":
+        title_config = "Baseline (FP32)"
+    elif args.name == "opt":
+        title_config = "Optimizado (AMP+CKPT)"
+    elif args.name == "opt_snapshot":
+        title_config = "Optimizado (AMP+CKPT) Snapshot"
+    else:
+        title_config = args.name
 
     estado = " (OOM)" if hubo_oom else ""
 
@@ -100,7 +133,7 @@ def generate_individual_plots(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generador de gráficas para GPT-2")
     parser.add_argument("--model", type=str, required=True, choices=["gpt2_base", "gpt2_medium", "gpt2_large"])
-    parser.add_argument("--name", type=str, required=True, choices=["base", "opt"])
+    parser.add_argument("--name", type=str, required=True, choices=["base", "opt", "opt_snapshot"])
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--max_length", type=int, required=True)
     args = parser.parse_args()

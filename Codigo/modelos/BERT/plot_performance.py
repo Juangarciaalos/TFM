@@ -5,12 +5,38 @@ import argparse
 import sys
 import os
 
+def get_output_root():
+    return os.environ.get("TFM_OUTPUT_DIR", "salidas")
+
+def build_paths(output_root, model_folder, filename_without_ext):
+    model_output_dir = os.path.join(output_root, model_folder)
+    csv_dir = os.path.join(model_output_dir, "csv")
+    plots_dir = os.path.join(model_output_dir, "graficas")
+
+    os.makedirs(plots_dir, exist_ok=True)
+
+    input_csv = os.path.join(csv_dir, f"{filename_without_ext}.csv")
+    output_base = os.path.join(plots_dir, filename_without_ext)
+
+    return input_csv, output_base
+
 def generate_individual_plots(args):
 
-    os.makedirs(f"salidas/BERT_{args.job_id}/graficas", exist_ok=True)
+    output_root = get_output_root()
+    model_output_dir = os.path.join(output_root, "BERT")
 
-    input_csv = f"salidas/BERT_{args.job_id}/csv/{args.model}_{args.name}_L{args.max_length}_{args.job_id}.csv"
-    output_base = f"salidas/BERT_{args.job_id}/graficas/{args.model}_{args.name}_L{args.max_length}_{args.job_id}"
+    csv_dir = os.path.join(model_output_dir, "csv")
+    plots_dir = os.path.join(model_output_dir, "graficas")
+
+    os.makedirs(plots_dir, exist_ok=True)
+
+    filename_base = f"{args.model}_{args.name}_L{args.max_length}_{args.job_id}"
+
+    input_csv, output_base = build_paths(
+        get_output_root(),
+        "BERT",
+        filename_base
+    )
     
     try:
         df = pd.read_csv(input_csv)
@@ -25,7 +51,7 @@ def generate_individual_plots(args):
     df = df.dropna()
 
     df['global_step'] = range(len(df))
-    
+
     if len(df) > 10:
         avg_time = df['batch_time_ms'][10:].mean()
     else:
@@ -46,6 +72,8 @@ def generate_individual_plots(args):
         title_config = "Baseline AdamW 32-bit"
     elif args.name == "opt_8bit":
         title_config = "AdamW 8-bit"
+    elif args.name == "opt_snapshot":
+        title_config = "Optimizado (AMP+CKPT) Snapshot"
     else:
         title_config = args.name 
 
@@ -120,7 +148,7 @@ def generate_individual_plots(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generador de gráficas para BERT")
     parser.add_argument("--model", type=str, required=True, choices=["bert_base", "bert_large"])
-    parser.add_argument("--name", type=str, required=True, choices=["base", "opt", "opt_8bit", "base_32bit"])
+    parser.add_argument("--name", type=str, required=True, choices=["base", "opt", "opt_8bit", "base_32bit", "opt_snapshot"])
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--max_length", type=int, required=True)
     args = parser.parse_args()

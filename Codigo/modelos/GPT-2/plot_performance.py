@@ -20,21 +20,33 @@ def generate_individual_plots(args):
     df['allocated_mb'] = pd.to_numeric(df['allocated_mb'], errors='coerce')
     df['reserved_mb'] = pd.to_numeric(df['reserved_mb'], errors='coerce')
     df['batch_time_ms'] = pd.to_numeric(df['batch_time_ms'], errors='coerce')
+    df['max_peak_mb'] = pd.to_numeric(df['max_peak_mb'], errors='coerce')
     df = df.dropna()
 
     df['global_step'] = range(len(df))
     
     if len(df) > 10:
         avg_time = df['batch_time_ms'][10:].mean()
-        peak_mem = df['allocated_mb'].max()
     else:
         avg_time = df['batch_time_ms'].mean()
-        peak_mem = df['allocated_mb'].max()
+
+    hubo_oom = 'OOM_CRASH' in df['event'].values
+
+    peak_alloc = df['max_peak_mb'].max()
+    peak_reserved = df['reserved_mb'].max()
+    peak_mem = peak_alloc
         
     title_model = "GPT-2 Base" if args.model == "gpt2_base" else "GPT-2 Medium" if args.model == "gpt2_medium" else "GPT-2 Large"
     title_config = "Baseline (FP32)" if args.name == "base" else "Optimizado (AMP+CKPT)"
-    base_title = f"{title_model} ({title_config}) - L={args.max_length}\nPeak: {peak_mem:.0f}MB | Time Batch (Avg): {avg_time:.1f}ms"
 
+    estado = " (OOM)" if hubo_oom else ""
+
+    base_title = (
+        f"{title_model} {title_config} - L={args.max_length}{estado}\n"
+        f"Peak Allocated: {peak_alloc:.0f}MB | "
+        f"Peak Reserved: {peak_reserved:.0f}MB | "
+        f"Avg Time: {avg_time:.1f}ms"
+)
     sns.set_theme(style="whitegrid")
 
     def save_plot(dataframe, suffix, is_zoom=False):
@@ -48,6 +60,10 @@ def generate_individual_plots(args):
         plt.plot(dataframe['global_step'], dataframe['allocated_mb'], 
                  label='Allocated (Uso Real)', color='#1f77b4', 
                  linewidth=2, marker='o' if is_zoom else None)
+        
+        plt.plot(dataframe['global_step'], dataframe['max_peak_mb'],
+                 label='Max Peak Allocated', color='#2ca02c',
+                 linestyle=':', linewidth=2)
         
         plt.fill_between(dataframe['global_step'], dataframe['allocated_mb'], color='#1f77b4', alpha=0.15)
         
@@ -64,6 +80,8 @@ def generate_individual_plots(args):
         plt.xlabel("Pasos del Entrenamiento (Eventos)", fontsize=12)
         plt.legend(loc='upper right', frameon=True, fontsize=10)
         plt.grid(True, which='both', linestyle='-', linewidth=0.5, alpha=0.5)
+        if hubo_oom:
+            plt.ylim(0, peak_mem * 1.15) 
         plt.tight_layout()
         
         plot_output = f"{output_base}_{suffix}.png"

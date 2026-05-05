@@ -7,7 +7,7 @@ import os
 import csv
 import time
 
-from GPT2 import gpt2_base, gpt2_large
+from GPT2 import gpt2_base, gpt2_large, gpt2_medium
 from load_wikitext2 import load_wikitext2
 
 class PerformanceLogger:
@@ -86,6 +86,7 @@ def train(args):
                 print(f"Batch {batch_idx} | Loss: {loss.item():.4f} | Time: {batch_time:.2f}ms")
                 
             if batch_idx >= 100: break 
+    print(torch.cuda.memory_summary(device=device))
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()

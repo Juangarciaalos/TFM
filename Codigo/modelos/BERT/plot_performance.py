@@ -26,21 +26,37 @@ def generate_individual_plots(args):
 
     df['global_step'] = range(len(df))
     
-    hubo_oom = 'OOM_CRASH' in df['event'].values
-
     if len(df) > 10:
         avg_time = df['batch_time_ms'][10:].mean()
-        peak_mem = df['max_peak_mb'].max() if hubo_oom else df['allocated_mb'].max()
     else:
         avg_time = df['batch_time_ms'].mean()
-        peak_mem = df['max_peak_mb'].max() if hubo_oom else df['allocated_mb'].max()
+
+    hubo_oom = 'OOM_CRASH' in df['event'].values
+
+    peak_alloc = df['max_peak_mb'].max()
+    peak_reserved = df['reserved_mb'].max()
+    peak_mem = peak_alloc
         
     title_model = "BERT-Base" if args.model == "bert_base" else "BERT-Large"
-    title_config = "Baseline (FP32)" if args.name == "base" else "Optimizado (AMP+CKPT)"
-    
-    estado = "¡OUT OF MEMORY!" if hubo_oom else "Completado"
-    base_title = f"{title_model} ({title_config}) - L={args.max_length}\nEstado: {estado} | Peak: {peak_mem:.0f}MB | Time Batch (Avg): {avg_time:.1f}ms"
+    if args.name == "base":
+        title_config = "Baseline (FP32)"
+    elif args.name == "opt":
+        title_config = "Optimizado (AMP+CKPT)"
+    elif args.name == "base_32bit":
+        title_config = "Baseline AdamW 32-bit"
+    elif args.name == "opt_8bit":
+        title_config = "AdamW 8-bit"
+    else:
+        title_config = args.name 
 
+    estado = " (OOM)" if hubo_oom else ""
+
+    base_title = (
+        f"{title_model} {title_config} - L={args.max_length}{estado}\n"
+        f"Peak Allocated: {peak_alloc:.0f}MB | "
+        f"Peak Reserved: {peak_reserved:.0f}MB | "
+        f"Avg Time: {avg_time:.1f}ms"
+)
     sns.set_theme(style="whitegrid")
 
     def save_plot(dataframe, suffix, is_zoom=False):
@@ -54,6 +70,10 @@ def generate_individual_plots(args):
         plt.plot(dataframe['global_step'], dataframe['allocated_mb'], 
                  label='Allocated (Uso Real)', color='#1f77b4', 
                  linewidth=2, marker='o' if is_zoom else None)
+        
+        plt.plot(dataframe['global_step'], dataframe['max_peak_mb'],
+                 label='Max Peak Allocated', color='#2ca02c',
+                 linestyle=':', linewidth=2)
         
         plt.fill_between(dataframe['global_step'], dataframe['allocated_mb'], color='#1f77b4', alpha=0.15)
         

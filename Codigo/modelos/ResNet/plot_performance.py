@@ -25,17 +25,30 @@ def generate_plot(args):
 
     df['global_step'] = range(len(df))
     
-    hubo_oom = 'OOM_CRASH' in df['event'].values
-    
     if len(df) > 10:
         avg_time = df['batch_time_ms'][10:].mean()
-        peak_mem = df['max_peak_mb'].max() if hubo_oom else df['allocated_mb'].max()
     else:
         avg_time = df['batch_time_ms'].mean()
-        peak_mem = df['max_peak_mb'].max() if hubo_oom else df['allocated_mb'].max()
-        
+
+    hubo_oom = 'OOM_CRASH' in df['event'].values
+
+    peak_alloc = df['max_peak_mb'].max()
+    peak_reserved = df['reserved_mb'].max()
+    peak_mem = peak_alloc
+
     title_model = "ResNet-50" if args.model == "resnet50" else "ResNet-101"
-    title_config = "Baseline (FP32)" if args.name == "base" else "Optimizado (AMP+CKPT)"
+    
+    if args.name == "base":
+        title_config = "Baseline (FP32)"
+    elif args.name == "opt":
+        title_config = "Optimizado (AMP+CKPT)"
+    elif args.name == "alloc_test":
+        title_config = "Allocator test (max_split_size_mb=128)"
+    elif args.name == "alloc_test_opt":
+        title_config = "Allocator test + AMP+CKPT"
+    else:
+        title_config = args.name
+
     estado = " (OOM)" if hubo_oom else ""
 
     sns.set_theme(style="whitegrid")
@@ -50,6 +63,10 @@ def generate_plot(args):
         plt.plot(dataframe['global_step'], dataframe['allocated_mb'], 
                  label='Allocated (Uso Real)', color='#1f77b4', 
                  linewidth=2, marker='o' if is_zoom else None)
+        
+        plt.plot(dataframe['global_step'], dataframe['max_peak_mb'],
+                 label='Max Peak Allocated', color='#2ca02c',
+                 linestyle=':', linewidth=2)
         
         plt.fill_between(dataframe['global_step'], dataframe['allocated_mb'], color='#1f77b4', alpha=0.15)
         
@@ -69,7 +86,12 @@ def generate_plot(args):
                              textcoords="offset points", xytext=(0,8), ha='center', 
                              fontsize=9, color='red', fontweight='bold')
 
-        plt.title(f"{title_model} {title_config} - Res: {args.image_size}x{args.image_size}{estado}\nPeak: {peak_mem:.0f}MB | Avg Time: {avg_time:.1f}ms", fontsize=14)
+        plt.title(
+            f"{title_model} {title_config} - Res: {args.image_size}x{args.image_size}{estado}\n"
+            f"Peak Allocated: {peak_alloc:.0f}MB | Peak Reserved: {peak_reserved:.0f}MB | "
+            f"Avg Time: {avg_time:.1f}ms"
+        )
+
         plt.ylabel("Memoria GPU (MB)")
         plt.xlabel("Pasos (Eventos)")
         

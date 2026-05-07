@@ -32,16 +32,16 @@ singularity exec --nv -B "$WORK":/workspace "$IMG" bash -lc "
 
     echo 'Snapshot BERT-Large L512 Optimizado'
     cd /workspace/modelos/BERT/
-    python train.py --job_id \$SLURM_JOB_ID --name opt_snapshot --model bert_large --max_length 512 --batch_size 32 --amp --checkpointing --memory_snapshot --snapshot_batches 30
+    python train.py --job_id \$SLURM_JOB_ID --name opt_snapshot --model bert_large --max_length 512 --batch_size 32 --amp --checkpointing --memory_snapshot --snapshot_batches 3
 
     echo 'Snapshot GPT2-Large L512 Optimizado'
     cd /workspace/modelos/GPT-2/
-    python train.py --job_id \$SLURM_JOB_ID --name opt_snapshot --model gpt2_large --max_length 512 --batch_size 8 --amp --checkpointing --memory_snapshot --snapshot_batches 30
+    python train.py --job_id \$SLURM_JOB_ID --name opt_snapshot --model gpt2_large --max_length 512 --batch_size 8 --amp --checkpointing --memory_snapshot --snapshot_batches 3
 
     echo 'Snapshot ResNet101 512 allocator test'
     cd /workspace/modelos/ResNet/
     export PYTORCH_ALLOC_CONF=max_split_size_mb:128
-    python train.py --job_id \$SLURM_JOB_ID --name alloc_snapshot --model resnet101 --image_size 512 --batch_size 64 --amp --checkpointing --memory_snapshot --snapshot_batches 30
+    python train.py --job_id \$SLURM_JOB_ID --name alloc_snapshot --model resnet101 --image_size 512 --batch_size 64 --amp --checkpointing --memory_snapshot --snapshot_batches 3
     unset PYTORCH_ALLOC_CONF
 "
 

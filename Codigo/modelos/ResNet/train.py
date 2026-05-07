@@ -25,7 +25,7 @@ def enable_memory_snapshot():
         return False
 
     try:
-        torch.cuda.memory._record_memory_history(True)
+        torch.cuda.memory._record_memory_history(max_entries=20000)
         print("Historial de memoria CUDA activado")
         return True
     except TypeError:
@@ -45,17 +45,12 @@ def disable_memory_snapshot():
         return
 
     try:
-        torch.cuda.memory._record_memory_history(False)
+        torch.cuda.memory._record_memory_history(enabled=None)
         print("Historial de memoria CUDA desactivado")
     except Exception as e:
         print(f"No se pudo desactivar el historial de memoria CUDA: {e}")
 
 def save_memory_diagnostics(output_dir, model_name, config_name, job_id):
-    """
-    Guarda información avanzada del CUDA caching allocator:
-    - Snapshot visualizable con pytorch.org/memory_viz
-    - Resumen textual de memoria CUDA
-    """
     if not torch.cuda.is_available():
         return
 
@@ -71,34 +66,52 @@ def save_memory_diagnostics(output_dir, model_name, config_name, job_id):
         f"{model_name}_{config_name}_{job_id}_memory_summary.txt"
     )
 
-    try:
-        if hasattr(torch.cuda.memory, "_dump_snapshot"):
-            torch.cuda.memory._dump_snapshot(snapshot_path)
-            print(f"Snapshot de memoria guardado con _dump_snapshot en: {snapshot_path}")
+    snapshot_saved = False
 
-        elif hasattr(torch.cuda.memory, "_snapshot"):
+    if hasattr(torch.cuda.memory, "_dump_snapshot"):
+        try:
+            torch.cuda.memory._dump_snapshot(snapshot_path)
+
+            if os.path.exists(snapshot_path) and os.path.getsize(snapshot_path) > 0:
+                snapshot_saved = True
+                print(f"Snapshot de memoria guardado con _dump_snapshot en: {snapshot_path}")
+            else:
+                print("_dump_snapshot no generó un archivo válido.")
+
+        except Exception as e:
+            print("No se pudo guardar el snapshot con _dump_snapshot.")
+            print(f"Tipo de error: {type(e).__name__}")
+            print(f"Detalle: {repr(e)}")
+
+    if not snapshot_saved and hasattr(torch.cuda.memory, "_snapshot"):
+        try:
             snapshot = torch.cuda.memory._snapshot()
 
             with open(snapshot_path, "wb") as f:
                 pickle.dump(snapshot, f)
 
-            print(f"Snapshot de memoria guardado con _snapshot + pickle en: {snapshot_path}")
+            if os.path.exists(snapshot_path) and os.path.getsize(snapshot_path) > 0:
+                snapshot_saved = True
+                print(f"Snapshot de memoria guardado con _snapshot + pickle en: {snapshot_path}")
+            else:
+                print("_snapshot + pickle no generó un archivo válido.")
 
-        else:
-            print("Esta versión de PyTorch no tiene _dump_snapshot ni _snapshot. No se puede guardar el pickle.")
+        except Exception as e:
+            print("No se pudo guardar el snapshot con _snapshot + pickle.")
+            print(f"Tipo de error: {type(e).__name__}")
+            print(f"Detalle: {repr(e)}")
 
-    except Exception as e:
-        print("No se pudo guardar el snapshot de memoria.")
-        print(f"Tipo de error: {type(e).__name__}")
-        print(f"Detalle: {repr(e)}")
+    if not snapshot_saved:
+        print("No se pudo guardar ningún snapshot pickle.")
 
     try:
         with open(summary_path, "w") as f:
             f.write(torch.cuda.memory_summary())
         print(f"Resumen de memoria guardado en: {summary_path}")
     except Exception as e:
-        print(f"No se pudo guardar memory_summary: {e}")
-
+        print("No se pudo guardar memory_summary.")
+        print(f"Tipo de error: {type(e).__name__}")
+        print(f"Detalle: {repr(e)}")
 class PerformanceLogger:
     def __init__(self, filename):
         self.filename = filename
@@ -128,7 +141,7 @@ def train(args):
 
     if args.memory_snapshot:
         snapshot_enabled = enable_memory_snapshot()
-        
+
     output_root = get_output_root()
     model_output_dir = os.path.join(output_root, "ResNet")
     csv_dir = os.path.join(model_output_dir, "csv")
@@ -235,7 +248,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="resnet50", choices=["resnet50", "resnet101"]) 
     parser.add_argument("--job_id", type=str, required=True)
-    parser.add_argument("--name", type=str, default="base", choices=["base", "opt", "alloc_test", "alloc_test_opt", "opt_snapshot", "alloc_snapshot"])
+    parser.add_argument("--name", type=str, default="base", choices=["base", "opt", "alloc_test", "alloc_test_opt", "opt_snapshot", "alloc_snapshot", "cuda_async", "cuda_async_opt"])
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=64)
     parser.add_argument("--image_size", type=int, default=224) 

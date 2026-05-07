@@ -51,10 +51,12 @@ def generate_plot(args):
 
     df['global_step'] = range(len(df))
     
-    if len(df) > 10:
-        avg_time = df['batch_time_ms'][10:].mean()
+    step_times = df[df["event"] == "after_step"]["batch_time_ms"]
+
+    if len(step_times) > 10:
+        avg_time = step_times.iloc[10:].mean()
     else:
-        avg_time = df['batch_time_ms'].mean()
+        avg_time = step_times.mean()
 
     hubo_oom = 'OOM_CRASH' in df['event'].values
 

@@ -26,7 +26,7 @@ def enable_memory_snapshot():
         return False
 
     try:
-        torch.cuda.memory._record_memory_history(True)
+        torch.cuda.memory._record_memory_history(max_entries=20000)
         print("Historial de memoria CUDA activado")
         return True
     except TypeError:
@@ -46,17 +46,12 @@ def disable_memory_snapshot():
         return
 
     try:
-        torch.cuda.memory._record_memory_history(False)
+        torch.cuda.memory._record_memory_history(enabled=None)
         print("Historial de memoria CUDA desactivado")
     except Exception as e:
         print(f"No se pudo desactivar el historial de memoria CUDA: {e}")
 
 def save_memory_diagnostics(output_dir, model_name, config_name, job_id):
-    """
-    Guarda información avanzada del CUDA caching allocator:
-    - Snapshot visualizable con pytorch.org/memory_viz
-    - Resumen textual de memoria CUDA
-    """
     if not torch.cuda.is_available():
         return
 
@@ -72,34 +67,52 @@ def save_memory_diagnostics(output_dir, model_name, config_name, job_id):
         f"{model_name}_{config_name}_{job_id}_memory_summary.txt"
     )
 
-    try:
-        if hasattr(torch.cuda.memory, "_dump_snapshot"):
-            torch.cuda.memory._dump_snapshot(snapshot_path)
-            print(f"Snapshot de memoria guardado con _dump_snapshot en: {snapshot_path}")
+    snapshot_saved = False
 
-        elif hasattr(torch.cuda.memory, "_snapshot"):
+    if hasattr(torch.cuda.memory, "_dump_snapshot"):
+        try:
+            torch.cuda.memory._dump_snapshot(snapshot_path)
+
+            if os.path.exists(snapshot_path) and os.path.getsize(snapshot_path) > 0:
+                snapshot_saved = True
+                print(f"Snapshot de memoria guardado con _dump_snapshot en: {snapshot_path}")
+            else:
+                print("_dump_snapshot no generó un archivo válido.")
+
+        except Exception as e:
+            print("No se pudo guardar el snapshot con _dump_snapshot.")
+            print(f"Tipo de error: {type(e).__name__}")
+            print(f"Detalle: {repr(e)}")
+
+    if not snapshot_saved and hasattr(torch.cuda.memory, "_snapshot"):
+        try:
             snapshot = torch.cuda.memory._snapshot()
 
             with open(snapshot_path, "wb") as f:
                 pickle.dump(snapshot, f)
 
-            print(f"Snapshot de memoria guardado con _snapshot + pickle en: {snapshot_path}")
+            if os.path.exists(snapshot_path) and os.path.getsize(snapshot_path) > 0:
+                snapshot_saved = True
+                print(f"Snapshot de memoria guardado con _snapshot + pickle en: {snapshot_path}")
+            else:
+                print("_snapshot + pickle no generó un archivo válido.")
 
-        else:
-            print("Esta versión de PyTorch no tiene _dump_snapshot ni _snapshot. No se puede guardar el pickle.")
+        except Exception as e:
+            print("No se pudo guardar el snapshot con _snapshot + pickle.")
+            print(f"Tipo de error: {type(e).__name__}")
+            print(f"Detalle: {repr(e)}")
 
-    except Exception as e:
-        print("No se pudo guardar el snapshot de memoria.")
-        print(f"Tipo de error: {type(e).__name__}")
-        print(f"Detalle: {repr(e)}")
+    if not snapshot_saved:
+        print("No se pudo guardar ningún snapshot pickle.")
 
     try:
         with open(summary_path, "w") as f:
             f.write(torch.cuda.memory_summary())
         print(f"Resumen de memoria guardado en: {summary_path}")
     except Exception as e:
-        print(f"No se pudo guardar memory_summary: {e}")
-
+        print("No se pudo guardar memory_summary.")
+        print(f"Tipo de error: {type(e).__name__}")
+        print(f"Detalle: {repr(e)}")
 class PerformanceLogger:
     def __init__(self, filename):
         self.filename = filename
@@ -118,7 +131,7 @@ class PerformanceLogger:
 
 def train(args):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    
+
     snapshot_enabled = False
 
     if args.memory_snapshot:
@@ -139,13 +152,16 @@ def train(args):
     train_loader, _ = load_wikitext2(batch_size=args.batch_size, max_length=args.max_length)
 
     if args.model == "gpt2_base":
-        model = gpt2_base().to(device)
+        model = gpt2_base(use_sdpa=args.sdpa).to(device)
     elif args.model == "gpt2_medium":
-        model = gpt2_medium().to(device)
+        model = gpt2_medium(use_sdpa=args.sdpa).to(device)
     elif args.model == "gpt2_large":
-        model = gpt2_large().to(device)
+        model = gpt2_large(use_sdpa=args.sdpa).to(device)
     else:
         raise ValueError(f"Modelo no reconocido: {args.model}")
+
+    if args.sdpa:
+        print("SDPA activado en la atención de GPT-2")
     
     if args.checkpointing:
         model.use_checkpoint = True
@@ -218,7 +234,7 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="gpt2_base", choices=["gpt2_base", "gpt2_medium", "gpt2_large"])
-    parser.add_argument("--name", type=str, default="base", choices=["base", "opt", "opt_snapshot"])
+    parser.add_argument("--name", type=str, default="base", choices=["base", "opt", "opt_snapshot", "sdpa", "sdpa_opt", "sdpa_opt_snapshot"])
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--batch_size", type=int, default=8)
     parser.add_argument("--epochs", type=int, default=1)
@@ -227,5 +243,7 @@ if __name__ == "__main__":
     parser.add_argument("--max_length", type=int, default=256)
     parser.add_argument("--memory_snapshot", action="store_true")
     parser.add_argument("--snapshot_batches", type=int, default=30)
+    parser.add_argument("--sdpa", action="store_true")
+
     args = parser.parse_args()
     train(args)

@@ -51,10 +51,12 @@ def generate_individual_plots(args):
 
     df['global_step'] = range(len(df))
     
-    if len(df) > 10:
-        avg_time = df['batch_time_ms'][10:].mean()
+    step_times = df[df["event"] == "after_step"]["batch_time_ms"]
+
+    if len(step_times) > 10:
+        avg_time = step_times.iloc[10:].mean()
     else:
-        avg_time = df['batch_time_ms'].mean()
+        avg_time = step_times.mean()
 
     hubo_oom = 'OOM_CRASH' in df['event'].values
 
@@ -69,6 +71,12 @@ def generate_individual_plots(args):
         title_config = "Optimizado (AMP+CKPT)"
     elif args.name == "opt_snapshot":
         title_config = "Optimizado (AMP+CKPT) Snapshot"
+    elif args.name == "sdpa":
+        title_config = "SDPA"
+    elif args.name == "sdpa_opt":
+        title_config = "SDPA + AMP+CKPT"
+    elif args.name == "sdpa_snapshot":
+        title_config = "SDPA Snapshot"
     else:
         title_config = args.name
 
@@ -133,7 +141,7 @@ def generate_individual_plots(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generador de gráficas para GPT-2")
     parser.add_argument("--model", type=str, required=True, choices=["gpt2_base", "gpt2_medium", "gpt2_large"])
-    parser.add_argument("--name", type=str, required=True, choices=["base", "opt", "opt_snapshot"])
+    parser.add_argument("--name", type=str, required=True, choices=["base", "opt", "opt_snapshot", "sdpa", "sdpa_opt", "sdpa_opt_snapshot"])
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--max_length", type=int, required=True)
     args = parser.parse_args()

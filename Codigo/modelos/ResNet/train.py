@@ -1,260 +1,235 @@
+import argparse
+import os
+import sys
+import time
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
+
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
+
+from common.logger import PerformanceLogger
+from common.memory import (
+    disable_memory_snapshot,
+    enable_memory_snapshot,
+    save_memory_diagnostics,
+)
+from common.paths import build_csv_path, get_diagnostics_dir
+
 from load_image_net import load_tiny_imagenet
 from ResNet import ResNet50, ResNet101
-import csv
-import time
-import sys
-import argparse
-import os
-import pickle
 
-def report_gpu_memory():
-    allocated = torch.cuda.memory_allocated() / (1024**2)
-    reserved = torch.cuda.memory_reserved() / (1024**2)
-    max_peak = torch.cuda.max_memory_allocated() / (1024**2)
-    print(f"Memoria GPU - Allocated: {allocated:.2f} MB | Reserved: {reserved:.2f} MB | Max Peak: {max_peak:.2f} MB")
 
-def get_output_root():
-    return os.environ.get("TFM_OUTPUT_DIR", "salidas")
+MODEL_FOLDER = "ResNet"
 
-def enable_memory_snapshot():
-    if not torch.cuda.is_available():
-        print("CUDA no está disponible.")
-        return False
 
-    try:
-        torch.cuda.memory._record_memory_history(max_entries=20000)
-        print("Historial de memoria CUDA activado")
-        return True
-    except TypeError:
-        try:
-            torch.cuda.memory._record_memory_history()
-            print("Historial de memoria CUDA activado")
-            return True
-        except Exception as e:
-            print(f"No se pudo activar el historial de memoria CUDA: {e}")
-            return False
-    except Exception as e:
-        print(f"No se pudo activar el historial de memoria CUDA: {e}")
-        return False
+def build_model(model_name: str, device: torch.device):
+    """
+    Construye el modelo ResNet seleccionado y lo mueve al dispositivo.
 
-def disable_memory_snapshot():
-    if not torch.cuda.is_available():
-        return
+    Args:
+        model_name (str): nombre del modelo. Puede ser 'resnet50' o 'resnet101'.
+        device (torch.device): dispositivo de ejecución.
 
-    try:
-        torch.cuda.memory._record_memory_history(enabled=None)
-        print("Historial de memoria CUDA desactivado")
-    except Exception as e:
-        print(f"No se pudo desactivar el historial de memoria CUDA: {e}")
+    Returns:
+        torch.nn.Module: modelo ResNet inicializado.
+    """
+    if model_name == "resnet50":
+        print("ResNet50 seleccionado")
+        return ResNet50(num_classes=200).to(device)
 
-def save_memory_diagnostics(output_dir, model_name, config_name, job_id):
-    if not torch.cuda.is_available():
-        return
+    if model_name == "resnet101":
+        print("ResNet101 seleccionado")
+        return ResNet101(num_classes=200).to(device)
 
-    os.makedirs(output_dir, exist_ok=True)
+    raise ValueError(f"Modelo no reconocido: {model_name}")
 
-    snapshot_path = os.path.join(
-        output_dir,
-        f"{model_name}_{config_name}_{job_id}_memory_snapshot.pickle"
-    )
-
-    summary_path = os.path.join(
-        output_dir,
-        f"{model_name}_{config_name}_{job_id}_memory_summary.txt"
-    )
-
-    snapshot_saved = False
-
-    if hasattr(torch.cuda.memory, "_dump_snapshot"):
-        try:
-            torch.cuda.memory._dump_snapshot(snapshot_path)
-
-            if os.path.exists(snapshot_path) and os.path.getsize(snapshot_path) > 0:
-                snapshot_saved = True
-                print(f"Snapshot de memoria guardado con _dump_snapshot en: {snapshot_path}")
-            else:
-                print("_dump_snapshot no generó un archivo válido.")
-
-        except Exception as e:
-            print("No se pudo guardar el snapshot con _dump_snapshot.")
-            print(f"Tipo de error: {type(e).__name__}")
-            print(f"Detalle: {repr(e)}")
-
-    if not snapshot_saved and hasattr(torch.cuda.memory, "_snapshot"):
-        try:
-            snapshot = torch.cuda.memory._snapshot()
-
-            with open(snapshot_path, "wb") as f:
-                pickle.dump(snapshot, f)
-
-            if os.path.exists(snapshot_path) and os.path.getsize(snapshot_path) > 0:
-                snapshot_saved = True
-                print(f"Snapshot de memoria guardado con _snapshot + pickle en: {snapshot_path}")
-            else:
-                print("_snapshot + pickle no generó un archivo válido.")
-
-        except Exception as e:
-            print("No se pudo guardar el snapshot con _snapshot + pickle.")
-            print(f"Tipo de error: {type(e).__name__}")
-            print(f"Detalle: {repr(e)}")
-
-    if not snapshot_saved:
-        print("No se pudo guardar ningún snapshot pickle.")
-
-    try:
-        with open(summary_path, "w") as f:
-            f.write(torch.cuda.memory_summary())
-        print(f"Resumen de memoria guardado en: {summary_path}")
-    except Exception as e:
-        print("No se pudo guardar memory_summary.")
-        print(f"Tipo de error: {type(e).__name__}")
-        print(f"Detalle: {repr(e)}")
-class PerformanceLogger:
-    def __init__(self, filename):
-        self.filename = filename
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-
-        with open(self.filename, mode='w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([
-                "epoch", "batch", "event",
-                "allocated_mb", "reserved_mb", "max_peak_mb",
-                "batch_time_ms"
-            ])
-
-    def log(self, epoch, batch, event, batch_time=0.0):
-        allocated = torch.cuda.memory_allocated() / (1024**2)
-        reserved = torch.cuda.memory_reserved() / (1024**2)
-        max_peak = torch.cuda.max_memory_allocated() / (1024**2)
-        
-        with open(self.filename, mode='a', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow([epoch, batch, event, f"{allocated:.2f}", f"{reserved:.2f}", f"{max_peak:.2f}", f"{batch_time:.4f}"])
 
 def train(args):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu") 
+    """
+    Ejecuta el entrenamiento de ResNet.
+    """
+    use_cuda = torch.cuda.is_available()
+    device = torch.device("cuda" if use_cuda else "cpu")
 
     snapshot_enabled = False
-
     if args.memory_snapshot:
-        snapshot_enabled = enable_memory_snapshot()
+        snapshot_enabled = enable_memory_snapshot(max_entries=args.snapshot_max_entries)
 
-    output_root = get_output_root()
-    model_output_dir = os.path.join(output_root, "ResNet")
-    csv_dir = os.path.join(model_output_dir, "csv")
-    os.makedirs(csv_dir, exist_ok=True)
+    filename_base = f"{args.model}_{args.name}_S{args.image_size}_{args.job_id}"
+    csv_filename = build_csv_path(MODEL_FOLDER, filename_base)
 
-    csv_filename = os.path.join(
-        csv_dir,
-        f"{args.model}_{args.name}_S{args.image_size}_{args.job_id}.csv"
+    train_loader, _ = load_tiny_imagenet(
+        batch_size=args.batch_size,
+        image_size=args.image_size,
     )
 
-    train_loader, _ = load_tiny_imagenet(batch_size=args.batch_size, image_size=args.image_size)
-
-    if args.model == "resnet50":
-        model = ResNet50(num_classes=200).to(device)
-        print("ResNet50 seleccionado")
-    elif args.model == "resnet101":
-        model = ResNet101(num_classes=200).to(device)
-        print("ResNet101 seleccionado")
-    else:
-        print("Modelo no reconocido, Resnet50 seleccionado.")
-        model = ResNet50(num_classes=200).to(device)
+    model = build_model(args.model, device)
 
     if args.checkpointing:
         model.use_checkpointing = True
         print("Gradient checkpointing activado")
 
-    optimizer = optim.SGD(model.parameters(), lr=0.1, momentum=0.9, weight_decay=1e-4)
+    optimizer = optim.SGD(
+        model.parameters(),
+        lr=0.1,
+        momentum=0.9,
+        weight_decay=1e-4,
+    )
+
     criterion = nn.CrossEntropyLoss()
-    
-    scaler = torch.cuda.amp.GradScaler(enabled=args.amp)
+    scaler = torch.cuda.amp.GradScaler(enabled=args.amp and use_cuda)
+
     if args.amp:
         print("AMP activado")
 
-    logger = PerformanceLogger(filename=csv_filename)
+    logger = PerformanceLogger(csv_filename)
 
-    start_event = torch.cuda.Event(enable_timing=True)
-    end_event = torch.cuda.Event(enable_timing=True)
+    start_event = torch.cuda.Event(enable_timing=True) if use_cuda else None
+    end_event = torch.cuda.Event(enable_timing=True) if use_cuda else None
 
-    print(f"Iniciando entrenamiento: {args.model} | Res: {args.image_size}x{args.image_size} | AMP: {args.amp} | Ckpt: {args.checkpointing}")
-    
+    print(
+        f"Iniciando entrenamiento: {args.model} | "
+        f"Res: {args.image_size}x{args.image_size} | "
+        f"AMP: {args.amp} | "
+        f"Ckpt: {args.checkpointing}"
+    )
+
+    stop_training = False
+    max_batches = args.snapshot_batches if args.memory_snapshot else args.max_batches
+
     for epoch in range(args.epochs):
         model.train()
         epoch_start_time = time.time()
 
         for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(device), target.to(device)
-            
-            torch.cuda.reset_peak_memory_stats()
-            start_event.record()
-            
+            data = data.to(device, non_blocking=True)
+            target = target.to(device, non_blocking=True)
+
+            if use_cuda:
+                torch.cuda.reset_peak_memory_stats()
+                start_event.record()
+            else:
+                batch_start_time = time.perf_counter()
+
             logger.log(epoch, batch_idx, "batch_start")
+
             optimizer.zero_grad(set_to_none=True)
-            
+
             try:
-                with torch.cuda.amp.autocast(enabled=args.amp):
+                with torch.cuda.amp.autocast(enabled=args.amp and use_cuda):
                     output = model(data)
                     loss = criterion(output, target)
-                
+
                 logger.log(epoch, batch_idx, "after_forward")
-                
+
                 scaler.scale(loss).backward()
                 logger.log(epoch, batch_idx, "after_backward")
-                
+
                 scaler.step(optimizer)
                 scaler.update()
-                
-            except RuntimeError as e:
-                if "out of memory" in str(e).lower():
-                    print(f"\n| --- ¡OOM CRASH DETECTADO en Batch {batch_idx}! --- |")
-                    logger.log(epoch, batch_idx, "OOM_CRASH")
-                    torch.cuda.empty_cache() 
-                    break 
-                else:
-                    raise e
 
-            end_event.record()
-            torch.cuda.synchronize()
-            batch_time = start_event.elapsed_time(end_event)
-            
+            except RuntimeError as exc:
+                if "out of memory" in str(exc).lower():
+                    print(f"|OOM DETECTADO en Batch {batch_idx}|")
+                    logger.log(epoch, batch_idx, "OOM_CRASH")
+
+                    if use_cuda:
+                        torch.cuda.empty_cache()
+
+                    stop_training = True
+                    break
+
+                raise
+
+            if use_cuda:
+                end_event.record()
+                torch.cuda.synchronize()
+                batch_time = start_event.elapsed_time(end_event)
+            else:
+                batch_time = (time.perf_counter() - batch_start_time) * 1000
+
             logger.log(epoch, batch_idx, "after_step", batch_time=batch_time)
 
             if batch_idx % 20 == 0:
-                print(f"Epoch {epoch} | Batch {batch_idx} | Loss: {loss.item():.4f} | Time: {batch_time:.2f}ms")
-            
-            max_batches = args.snapshot_batches if args.memory_snapshot else 100
+                print(
+                    f"Epoch {epoch} | "
+                    f"Batch {batch_idx} | "
+                    f"Loss: {loss.item():.4f} | "
+                    f"Time: {batch_time:.2f}ms"
+                )
+
             if batch_idx >= max_batches:
                 break
 
-        print(f">> Epoch {epoch} finalizada en {time.time() - epoch_start_time:.2f}s")
+        print(
+            f"Epoch {epoch} finalizada en "
+            f"{(time.time() - epoch_start_time):.2f}s"
+        )
 
-    if args.memory_snapshot and torch.cuda.is_available():
-        diagnostics_dir = os.path.join(model_output_dir, "diagnosticos")
+        if stop_training:
+            break
+
+    if args.memory_snapshot and use_cuda:
+        diagnostics_dir = get_diagnostics_dir(MODEL_FOLDER)
+
         save_memory_diagnostics(
             output_dir=diagnostics_dir,
             model_name=args.model,
             config_name=args.name,
-            job_id=args.job_id
+            job_id=args.job_id,
         )
 
         if snapshot_enabled:
             disable_memory_snapshot()
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="resnet50", choices=["resnet50", "resnet101"]) 
+
+def parse_args():
+    """
+    Define y parsea los argumentos.
+    """
+    parser = argparse.ArgumentParser(description="Entrenamiento de ResNet")
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        default="resnet50",
+        choices=["resnet50", "resnet101"],
+    )
+    parser.add_argument(
+        "--name",
+        type=str,
+        default="base",
+        choices=[
+            "base",
+            "opt",
+            "alloc_test",
+            "alloc_test_opt",
+            "opt_snapshot",
+            "alloc_snapshot",
+            "cuda_async",
+            "cuda_async_opt",
+        ],
+    )
     parser.add_argument("--job_id", type=str, required=True)
-    parser.add_argument("--name", type=str, default="base", choices=["base", "opt", "alloc_test", "alloc_test_opt", "opt_snapshot", "alloc_snapshot", "cuda_async", "cuda_async_opt"])
+
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch_size", type=int, default=64)
-    parser.add_argument("--image_size", type=int, default=224) 
+    parser.add_argument("--max_batches", type=int, default=100)
+    parser.add_argument("--image_size", type=int, default=224)
+
     parser.add_argument("--amp", action="store_true")
     parser.add_argument("--checkpointing", action="store_true")
+
     parser.add_argument("--memory_snapshot", action="store_true")
     parser.add_argument("--snapshot_batches", type=int, default=30)
-    args = parser.parse_args()
-    train(args)
+    parser.add_argument("--snapshot_max_entries", type=int, default=20000)
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    train(parse_args())

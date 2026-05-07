@@ -7,60 +7,94 @@
 #SBATCH --error=salidas/slurm_%x_%j.err
 #SBATCH --mail-type=NONE
 
-
 set -euo pipefail
 
-module purge
-module load singularity
+source common/slurm_common.sh
 
-BASE="/nas/hdd-0/singularity_images/jgalos"
-IMG="$BASE/containers/pytorch.sif"
-WORK="$BASE/tfm"
+run_in_container "/workspace/.venv" <<'CONTAINER'
+cd /workspace/modelos/BERT/
 
-RUN_NAME="${SLURM_JOB_NAME}_${SLURM_JOB_ID}"
-HOST_OUTPUT_DIR="$WORK/salidas/$RUN_NAME"
+echo 'BERT-BASE (Secuencia 128)'
+python train.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name base \
+    --model bert_base \
+    --max_length 128 \
+    --batch_size 32
 
-mkdir -p "$HOST_OUTPUT_DIR"
+python plot_performance.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name base \
+    --model bert_base \
+    --max_length 128
 
-exec > >(tee "$HOST_OUTPUT_DIR/${RUN_NAME}.out") 2> >(tee "$HOST_OUTPUT_DIR/${RUN_NAME}.err" >&2)
+sleep 10
 
-singularity exec --nv -B "$WORK":/workspace "$IMG" bash -lc "
-    set -euo pipefail
+echo 'BERT-LARGE (Secuencia 128)'
+python train.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name base \
+    --model bert_large \
+    --max_length 128 \
+    --batch_size 32
 
-    source /workspace/.venv/bin/activate
+python plot_performance.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name base \
+    --model bert_large \
+    --max_length 128
 
-    export TFM_OUTPUT_DIR=\"/workspace/salidas/$RUN_NAME\"
+sleep 10
 
-    cd /workspace/modelos/BERT/
+echo 'BERT-LARGE OPTIMIZADO (Secuencia 128)'
+python train.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name opt \
+    --model bert_large \
+    --max_length 128 \
+    --batch_size 32 \
+    --amp \
+    --checkpointing
 
-    echo 'BERT-BASE (Secuencia 128)'
-    python train.py --job_id \$SLURM_JOB_ID --name base --model bert_base --max_length 128 --batch_size 32
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model bert_base --max_length 128
+python plot_performance.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name opt \
+    --model bert_large \
+    --max_length 128
 
-    sleep 10
+sleep 10
 
-    echo 'BERT-LARGE (Secuencia 128)'
-    python train.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 128 --batch_size 32
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 128
+echo 'BERT-LARGE (Secuencia 512)'
+python train.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name base \
+    --model bert_large \
+    --max_length 512 \
+    --batch_size 32
 
-    sleep 10
+python plot_performance.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name base \
+    --model bert_large \
+    --max_length 512
 
-    echo 'BERT-LARGE OPTIMIZADO(Secuencia 128)'
-    python train.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 128 --batch_size 32 --amp --checkpointing
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 128
+sleep 10
 
-    sleep 10
+echo 'BERT-LARGE OPTIMIZADO (Secuencia 512)'
+python train.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name opt \
+    --model bert_large \
+    --max_length 512 \
+    --batch_size 32 \
+    --amp \
+    --checkpointing
 
-    echo 'BERT-LARGE (Secuencia 512)'
-    python train.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 512 --batch_size 32
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name base --model bert_large --max_length 512
-    
-    sleep 10
+python plot_performance.py \
+    --job_id "$SLURM_JOB_ID" \
+    --name opt \
+    --model bert_large \
+    --max_length 512
+CONTAINER
 
-    echo 'BERT-LARGE OPTIMIZADO (Secuencia 512)'
-    python train.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 512 --batch_size 32 --amp --checkpointing
-    python plot_performance.py --job_id \$SLURM_JOB_ID --name opt --model bert_large --max_length 512
-"
-
-rm -f "$WORK/salidas/slurm_${SLURM_JOB_NAME}_${SLURM_JOB_ID}.out" 2>/dev/null || true
-rm -f "$WORK/salidas/slurm_${SLURM_JOB_NAME}_${SLURM_JOB_ID}.err" 2>/dev/null || true
+cleanup_slurm_logs

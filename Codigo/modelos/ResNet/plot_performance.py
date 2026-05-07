@@ -1,158 +1,136 @@
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
 import argparse
 import os
+import sys
 
-def get_output_root():
-    return os.environ.get("TFM_OUTPUT_DIR", "salidas")
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+if PROJECT_ROOT not in sys.path:
+    sys.path.append(PROJECT_ROOT)
 
-def build_paths(output_root, model_folder, filename_without_ext):
-    model_output_dir = os.path.join(output_root, model_folder)
-    csv_dir = os.path.join(model_output_dir, "csv")
-    plots_dir = os.path.join(model_output_dir, "graficas")
+from common.paths import build_csv_path, build_plot_base_path
+from common.plotting import (
+    compute_plot_metrics,
+    load_performance_csv,
+    plot_memory_usage,
+)
 
-    os.makedirs(plots_dir, exist_ok=True)
 
-    input_csv = os.path.join(csv_dir, f"{filename_without_ext}.csv")
-    output_base = os.path.join(plots_dir, filename_without_ext)
+MODEL_FOLDER = "ResNet"
 
-    return input_csv, output_base
 
-def generate_plot(args):
+def get_model_title(model_name: str) -> str:
+    """
+    Devuelve el nombre del modelo seleccionado.
+    """
+    mapping = {
+        "resnet50": "ResNet-50",
+        "resnet101": "ResNet-101",
+    }
 
-    output_root = get_output_root()
-    model_output_dir = os.path.join(output_root, "ResNet")
+    return mapping.get(model_name, model_name)
 
-    csv_dir = os.path.join(model_output_dir, "csv")
-    plots_dir = os.path.join(model_output_dir, "graficas")
 
-    os.makedirs(plots_dir, exist_ok=True)
+def get_config_title(config_name: str) -> str:
+    """
+    Devuelve el nombre de la configuración utilizada.
+    """
+    mapping = {
+        "base": "Baseline (FP32)",
+        "opt": "Optimizado (AMP+CKPT)",
+        "alloc_test": "Allocator test (max_split_size_mb=128)",
+        "alloc_test_opt": "Allocator test + AMP+CKPT",
+        "opt_snapshot": "Optimizado (AMP+CKPT) Snapshot",
+        "alloc_snapshot": "Allocator Snapshot (max_split_size_mb=128)",
+        "cuda_async": "Allocator backend cudaMallocAsync",
+        "cuda_async_opt": "cudaMallocAsync + AMP+CKPT",
+    }
 
-    filename_base = f"{args.model}_{args.name}_S{args.image_size}_{args.job_id}"
+    return mapping.get(config_name, config_name)
 
-    input_csv, output_base = build_paths(
-        get_output_root(),
-        "ResNet",
-        filename_base
-    )
-    
+
+def build_filename_base(args) -> str:
+    """
+    Construye el nombre base para el CSV y las gráficas.
+    """
+    return f"{args.model}_{args.name}_S{args.image_size}_{args.job_id}"
+
+
+def generate_plot(args) -> None:
+    """
+    Genera las gráficas de memoria para una ejecución de ResNet.
+
+    Se generan dos imágenes:
+    - Vista completa: *_full.png
+    - Vista ampliada de los primeros eventos: *_zoom.png
+    """
+    filename_base = build_filename_base(args)
+
+    input_csv = build_csv_path(MODEL_FOLDER, filename_base)
+    output_base = build_plot_base_path(MODEL_FOLDER, filename_base)
+
     try:
-        df = pd.read_csv(input_csv)
+        df = load_performance_csv(input_csv)
     except FileNotFoundError:
         print(f"Error: No se encontró el archivo CSV en {input_csv}")
         return
 
-    df['allocated_mb'] = pd.to_numeric(df['allocated_mb'], errors='coerce')
-    df['reserved_mb'] = pd.to_numeric(df['reserved_mb'], errors='coerce')
-    df['max_peak_mb'] = pd.to_numeric(df['max_peak_mb'], errors='coerce')
-    df['batch_time_ms'] = pd.to_numeric(df['batch_time_ms'], errors='coerce')
-    df = df.dropna()
+    metrics = compute_plot_metrics(df)
 
-    df['global_step'] = range(len(df))
-    
-    step_times = df[df["event"] == "after_step"]["batch_time_ms"]
+    title_model = get_model_title(args.model)
+    title_config = get_config_title(args.name)
+    estado = " (OOM)" if metrics["hubo_oom"] else ""
 
-    if len(step_times) > 10:
-        avg_time = step_times.iloc[10:].mean()
-    else:
-        avg_time = step_times.mean()
+    base_title = (
+        f"{title_model} {title_config} - "
+        f"Res: {args.image_size}x{args.image_size}{estado}\n"
+        f"Peak Allocated: {metrics['peak_alloc']:.0f}MB | "
+        f"Peak Reserved: {metrics['peak_reserved']:.0f}MB | "
+        f"Avg Time: {metrics['avg_time']:.1f}ms"
+    )
 
-    hubo_oom = 'OOM_CRASH' in df['event'].values
+    print(f"Generando gráfica FULL y ZOOM para {args.model}...")
 
-    peak_alloc = df['max_peak_mb'].max()
-    peak_reserved = df['reserved_mb'].max()
-    peak_mem = peak_alloc
+    plot_memory_usage(
+        df=df,
+        output_base=output_base,
+        base_title=base_title,
+        peak_mem=metrics["peak_mem"],
+        hubo_oom=metrics["hubo_oom"],
+        zoom_points=40,
+        legend_loc="upper left",
+    )
 
-    title_model = "ResNet-50" if args.model == "resnet50" else "ResNet-101"
-    
-    if args.name == "base":
-        title_config = "Baseline (FP32)"
-    elif args.name == "opt":
-        title_config = "Optimizado (AMP+CKPT)"
-    elif args.name == "alloc_test":
-        title_config = "Allocator test (max_split_size_mb=128)"
-    elif args.name == "alloc_test_opt":
-        title_config = "Allocator test + AMP+CKPT"
-    elif args.name == "opt_snapshot":
-        title_config = "Optimizado (AMP+CKPT) Snapshot"
-    elif args.name == "alloc_snapshot":
-        title_config = "Allocator Snapshot (max_split_size_mb=128)"
-    elif args.name == "cuda_async":
-        title_config = "Allocator backend cudaMallocAsync"
-    elif args.name == "cuda_async_opt":
-        title_config = "cudaMallocAsync + AMP+CKPT"
-    else:
-        title_config = args.name
-
-    estado = " (OOM)" if hubo_oom else ""
-
-    sns.set_theme(style="whitegrid")
-
-    def save_plot(dataframe, suffix, is_zoom=False):
-        plt.figure(figsize=(12, 6))
-        
-        plt.plot(dataframe['global_step'], dataframe['reserved_mb'], 
-                 label='Reserved (CUDA Cache)', color='#ff7f0e', 
-                 linestyle='--', alpha=0.7, marker='.' if is_zoom else None)
-        
-        plt.plot(dataframe['global_step'], dataframe['allocated_mb'], 
-                 label='Allocated (Uso Real)', color='#1f77b4', 
-                 linewidth=2, marker='o' if is_zoom else None)
-        
-        plt.plot(dataframe['global_step'], dataframe['max_peak_mb'],
-                 label='Max Peak Allocated', color='#2ca02c',
-                 linestyle=':', linewidth=2)
-        
-        plt.fill_between(dataframe['global_step'], dataframe['allocated_mb'], color='#1f77b4', alpha=0.15)
-        
-        if is_zoom:
-            for _, row in dataframe.iterrows():
-                if row['event'] in ['after_forward', 'after_backward']:
-                    label = 'Fwd' if 'forward' in row['event'] else 'Bwd'
-                    plt.annotate(label, (row['global_step'], row['allocated_mb']),
-                                 textcoords="offset points", xytext=(0,10), ha='center', 
-                                 fontsize=8, fontweight='bold')
-                                 
-        for _, row in dataframe.iterrows():
-            if row['event'] == 'OOM_CRASH':
-                crash_mem = row['max_peak_mb']
-                plt.plot(row['global_step'], crash_mem, marker='o', color='red', markersize=8, zorder=5)
-                plt.annotate('OOM', (row['global_step'], crash_mem),
-                             textcoords="offset points", xytext=(0,8), ha='center', 
-                             fontsize=9, color='red', fontweight='bold')
-
-        plt.title(
-            f"{title_model} {title_config} - Res: {args.image_size}x{args.image_size}{estado}\n"
-            f"Peak Allocated: {peak_alloc:.0f}MB | Peak Reserved: {peak_reserved:.0f}MB | "
-            f"Avg Time: {avg_time:.1f}ms"
-        )
-
-        plt.ylabel("Memoria GPU (MB)")
-        plt.xlabel("Pasos (Eventos)")
-        
-        plt.legend(loc='upper left')
-        
-        if hubo_oom:
-            plt.ylim(0, peak_mem * 1.10)
-            
-        plt.tight_layout()
-        plt.savefig(f"{output_base}_{suffix}.png", dpi=300)
-        plt.close()
+    print("Gráficas guardadas.")
 
 
-    save_plot(df, "full", is_zoom=False)
-    
-    zoom_points = 40 if len(df) > 40 else len(df)
-    save_plot(df.head(zoom_points), "zoom", is_zoom=True)
-    
-    print(f"Gráficas guardadas.")
-
-if __name__ == "__main__":
+def parse_args():
     parser = argparse.ArgumentParser(description="Generador de gráficas para ResNet")
-    parser.add_argument("--model", type=str, required=True)
-    parser.add_argument("--name", type=str, required=True)
+
+    parser.add_argument(
+        "--model",
+        type=str,
+        required=True,
+        choices=["resnet50", "resnet101"],
+    )
+    parser.add_argument(
+        "--name",
+        type=str,
+        required=True,
+        choices=[
+            "base",
+            "opt",
+            "alloc_test",
+            "alloc_test_opt",
+            "opt_snapshot",
+            "alloc_snapshot",
+            "cuda_async",
+            "cuda_async_opt",
+        ],
+    )
     parser.add_argument("--job_id", type=str, required=True)
     parser.add_argument("--image_size", type=int, required=True)
-    args = parser.parse_args()
-    generate_plot(args)
+
+    return parser.parse_args()
+
+
+if __name__ == "__main__":
+    generate_plot(parse_args())

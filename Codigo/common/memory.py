@@ -35,7 +35,7 @@ def enable_memory_snapshot(max_entries: int = 20000) -> bool:
         return False
 
     try:
-        torch.cuda.memory._record_memory_history(max_entries=max_entries)
+        torch.cuda.memory._record_memory_history(max_entries=max_entries, enabled="all")
         print(f"Historial de memoria CUDA activado con max_entries={max_entries}")
         return True
 
